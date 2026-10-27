@@ -942,6 +942,7 @@ async fn tokio_main(
             );
         }
 
+        let mut bt_init_attempt = 0u32;
         loop {
             match bluetooth::init(
                 cfg.btalias.clone(),
@@ -959,7 +960,21 @@ async fn tokio_main(
                     break;
                 }
                 Err(e) => {
-                    error!("{} Fatal error in Bluetooth setup: {}", NAME, e);
+                    bt_init_attempt += 1;
+                    // Right after boot this is usually a race with bluetoothd
+                    // (hci0 not exposed on the system bus yet), so log it as a
+                    // warning and only escalate if the adapter stays missing.
+                    if bt_init_attempt <= 10 {
+                        warn!(
+                            "{} Bluetooth adapter not ready yet (attempt {}): {}; retrying",
+                            NAME, bt_init_attempt, e
+                        );
+                    } else {
+                        error!(
+                            "{} Bluetooth setup still failing (attempt {}): {}; retrying",
+                            NAME, bt_init_attempt, e
+                        );
+                    }
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     continue;
                 }
