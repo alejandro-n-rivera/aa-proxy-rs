@@ -518,14 +518,37 @@ pub async fn ssl_builder_async(
     keys_path: &str,
 ) -> Result<(AaConnection, SslMemBuf)> {
     let path = keys_path.to_owned();
-    let config = tokio::task::spawn_blocking(move || prepared_config(proxy_type, &path)).await??;
-    connection_from_prepared(config)
+    tokio::task::spawn_blocking(move || {
+        let started = Instant::now();
+        let result = ssl_builder(proxy_type, &path);
+        log::info!(
+            "TLS setup: {:?} fresh connection built in {}ms on blocking worker",
+            proxy_type,
+            started.elapsed().as_millis()
+        );
+        result
+    })
+    .await?
 }
 
 pub fn prewarm_during_wifi_wait(keys_path: &str) {
     let path = keys_path.to_owned();
     tokio::spawn(async move {
         let result = tokio::task::spawn_blocking(move || -> Result<()> {
+            // AWS-LC lazily initializes its process-wide entropy source on the
+            // first random request. Key parsing alone does not exercise it.
+            // Preserve that entropy source and overlap its one-time cost with
+            // the phone's Wi-Fi association, never reuse random/TLS state.
+            let started = Instant::now();
+            let mut random = [0u8; 32];
+            default_provider()
+                .secure_random
+                .fill(&mut random)
+                .map_err(|_| "TLS entropy initialization failed")?;
+            log::info!(
+                "TLS prepare: entropy ready in {}ms during phone Wi-Fi wait",
+                started.elapsed().as_millis()
+            );
             prepared_config(ProxyType::HeadUnit, &path)?;
             prepared_config(ProxyType::MobileDevice, &path)?;
             Ok(())

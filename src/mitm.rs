@@ -4178,7 +4178,18 @@ pub async fn proxy<D: IoDeviceTrait>(
             )
             .await;
             pkt.ssl_decapsulate_write(&mut mem_buf).await?;
-            match ssl_conn.process(&mut mem_buf) {
+            let tls_step_started = std::time::Instant::now();
+            let tls_step_result = ssl_conn.process(&mut mem_buf);
+            let tls_step_ms = tls_step_started.elapsed().as_millis();
+            if step == 0 || tls_step_ms >= 100 {
+                info!(
+                    "{} TLS handshake processing step {} took {}ms",
+                    get_name(proxy_type),
+                    step + 1,
+                    tls_step_ms
+                );
+            }
+            match tls_step_result {
                 Err(e) => {
                     error!(
                         "{} 🔴 SSL/certificate problem during handshake ({}), falling back to <yellow>passthrough</> (MITM off) for the rest of this boot",
@@ -4270,7 +4281,18 @@ pub async fn proxy<D: IoDeviceTrait>(
         // doing SSL handshake
         let mut step: u32 = 0;
         loop {
-            match ssl_conn.process(&mut mem_buf) {
+            let tls_step_started = std::time::Instant::now();
+            let tls_step_result = ssl_conn.process(&mut mem_buf);
+            let tls_step_ms = tls_step_started.elapsed().as_millis();
+            if step == 0 || tls_step_ms >= 100 {
+                info!(
+                    "{} TLS handshake processing step {} took {}ms",
+                    get_name(proxy_type),
+                    step + 1,
+                    tls_step_ms
+                );
+            }
+            match tls_step_result {
                 Err(e) => {
                     error!(
                         "{} 🔴 SSL/certificate problem during handshake ({}), falling back to <yellow>passthrough</> (MITM off) for the rest of this boot",
