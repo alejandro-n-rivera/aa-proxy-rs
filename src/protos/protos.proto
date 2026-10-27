@@ -284,7 +284,8 @@ message PhoneStatusService {}
 message MediaBrowserService {}
 
 message VendorExtensionService {
-  required string service_name = 1;
+  // Preserve legacy HU vendor names that contain non-UTF-8 bytes.
+  required bytes service_name = 1;
   repeated string package_white_list = 2;
   optional bytes data = 3;
 }
