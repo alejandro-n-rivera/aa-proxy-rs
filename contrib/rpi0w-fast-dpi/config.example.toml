@@ -1,0 +1,587 @@
+### 📶 WI-FI
+  # Wi-Fi SSID
+  ssid = "aa-proxy"
+
+  # Wi-Fi password used as the WPA pre-shared key (WPA-PSK)
+  wpa_passphrase = "CHANGE-ME-BEFORE-USE"
+
+  # Wi-Fi Country code (ISO/IEC 3166-1). Used to set regulatory domain. Set as needed to indicate country in which device is operating. This can limit available channels and transmit power.
+  country_code = "US"
+
+  # Wi-Fi operation mode:
+  # `1` = Wi-Fi 1 (IEEE 802.11b) - 2.4 GHz only,
+  # `2` = Wi-Fi 2 (IEEE 802.11a) - 5 GHz only,
+  # `3` = Wi-Fi 3 (IEEE 802.11g) - 2.4 GHz only,
+  # `4` = Wi-Fi 4 (IEEE 802.11n) - 2.4/5 GHz,
+  # `5` = Wi-Fi 5 (IEEE 802.11ac) - 5 GHz only,
+  # `6` = Wi-Fi 6/6E (IEEE 802.11ax) - 2.4/5 GHz (Wi-Fi 6), 2.4/5/6 GHz (Wi-Fi 6E),
+  # `7` = Wi-Fi 7 (IEEE 802.11be) - 2.4/5/6 GHz
+  #wifi_version = 1
+
+  # Wi-Fi operating frequency: `2.4` OR `5`. The default should be fine. 6 GHz is NOT supported.
+  #band = "2.4"
+
+  # Wi-Fi channel number (IEEE 802.11)
+  #channel = 6
+
+  # WLAN / Wi-Fi hotspot interface (for obtaining IP and BSSID)
+  iface = "wlan0"
+
+  # Comma-separated kernel modules to modprobe during startup. For example: rt2800usb,mt76x2u.
+  preload_kernel_modules = ""
+
+  # Optional firmware search directory for kernel modules that need firmware blobs. If the directory exists and contains files, it is written to /sys/module/firmware_class/parameters/path before preload_kernel_modules are modprobed. Example: /data/aa-proxy-rs/firmware
+  kernel_module_path = "/data/aa-proxy-rs/firmware"
+
+  # Internal Wi-Fi hotspot subnet (first three octets). The device IP will be <subnet>.1, DHCP pool <subnet>.2–<subnet>.20. Change only if this conflicts with another network in your car. Default: 10.0.0
+  wlan_subnet = "10.0.0"
+
+  # Only for Radxa: enable if you have connected an external antenna
+  external_antenna = false
+
+### 📻 BLUETOOTH
+  # Enable Classic Bluetooth/RFCOMM companion transport
+  enable_companion_bt = false
+
+  # Require application-level HMAC authentication for Classic Bluetooth companion transport. Pairing behavior is unchanged; auth gates companion commands after RFCOMM connects.
+  companion_bt_auth_required = true
+
+  # Shared Classic Bluetooth companion auth token. Leave empty for first-run provisioning; the companion app can generate and install a long random token, then future BT connections use HMAC challenge-response. Do not share this value.
+  companion_bt_auth_token = ""
+
+  # Make the Bluetooth adapter discoverable
+  advertise = true
+
+  # Bluetooth device name/alias (how your bluetooth device is visible)
+  # by default it is `aa-proxy-CPUSERIAL`
+  # for dongle mode you need to set it to: `AndroidAuto-xxxxx`
+  btalias = ""
+
+  # Auto-connect to phone and initiate connection
+  # empty string/no value: don't auto-connect,
+  # zeros: iterate over all previously connected devices,
+  # may be set to a comma seperated list of phone BT MAC addresses for connecting to a specific list of phones, wildcard may not be used with list
+  connect = "00:00:00:00:00:00"
+
+  # Bluetooth handshake timeout [seconds], for rare cases when the phone stops responding (prevents the bluetooth handshake deadlock with infinite waiting and not restarting connection again)
+  bt_timeout_secs = 120
+
+  # Powers off the Bluetooth adapter after the handshake. Intended for use only in specific configurations.
+  bt_poweroff = false
+
+  # Dongle mode
+  dongle_mode = false
+
+  # EXPERIMENTAL: Maintain persistent Bluetooth connection to enable faster reconnection with MD
+  quick_reconnect = true
+
+  # EXPERIMENTAL Proxy: enable AA Wireless Bluetooth RFCOMM bridge/probe against a real wireless-capable HU. Disabled by default.
+  bt_wireless_proxy = false
+
+### 📻 BLUETOOTH / 📡 AA Wireless proxy
+  # EXPERIMENTAL Proxy mode: bridge = relay phone<->HU RFCOMM using one adapter; probe = connect to HU and emulate only the Wi-Fi bootstrap frames; car-wifi-mitm = delay/modify BT Wi-Fi bootstrap, join car Wi-Fi, and raw-relay TCP.
+  bt_wireless_proxy_mode = "car-wifi-mitm"
+
+  # EXPERIMENTAL Proxy: Bluetooth MAC address of the wireless-capable head unit.
+  bt_wireless_proxy_hu_mac = ""
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: phone-facing Wi-Fi mode. car_ap forwards HU/car Wi-Fi credentials to the phone. proxy_ap uses a single radio and creates a virtual phone AP. external_ap keeps the phone on the base aa-proxy AP while an external/USB STA joins the HU/car Wi-Fi.
+  bt_wireless_proxy_phone_wifi_mode = "car_ap"
+
+  # AA Wireless proxy: if the configured HU is not paired/trusted, keep aa-proxy pairable/discoverable for this many seconds and auto-accept pairing only from bt_wireless_proxy_hu_mac. Default: 120.
+  bt_wireless_proxy_pairing_window_secs = 120
+
+  # AA Wireless proxy: during HU pairing preflight, temporarily make the local Bluetooth adapter look more like a phone by changing its alias and Classic Bluetooth Class of Device. Useful for HUs such as MBUX that may hide non-phone devices from the pair-phone screen. Restored after the pairing window. Default: false.
+  bt_wireless_proxy_phone_like_pairing = false
+
+  # AA Wireless proxy: temporary Bluetooth alias used only while bt_wireless_proxy_phone_like_pairing is active. Empty means AndroidAuto.
+  bt_wireless_proxy_phone_like_pairing_alias = "AndroidAuto"
+
+  # AA Wireless proxy: temporary Classic Bluetooth Class of Device used only while bt_wireless_proxy_phone_like_pairing is active. Examples: 0x00020C = phone/smartphone; 0x5A020C = more phone-like with service bits. Requires hciconfig on the SBC.
+  bt_wireless_proxy_phone_like_pairing_class = "0x00020C"
+
+  # AA Wireless proxy: register additional dummy phone-like SDP service UUIDs while bt_wireless_proxy is enabled. This is for HUs such as MBUX that classify paired devices by SDP profile list. The AA Wireless UUID remains registered and is never removed. Dummy profiles only advertise UUIDs and log/close incoming connections; they do not implement HFP/PBAP/MAP semantics. Default: false.
+  bt_wireless_proxy_phone_like_sdp_profiles = false
+
+  # AA Wireless proxy: dummy phone-like SDP profile set. minimal advertises HFP AG, PBAP Server, MAP Server, OPP, Audio Source, and AVRCP Target. full additionally advertises HSP AG, AVRCP Remote/Controller, PANU, NAP, and PnP Information. Use minimal first.
+  bt_wireless_proxy_phone_like_sdp_profile_set = "minimal"
+
+  # EXPERIMENTAL Proxy car-wifi-mitm Bluetooth rendezvous strategy. auto tries the HU-first buffered path first and falls back to phone-first if the phone AA RFCOMM never arrives. hu_first and phone_first force the strict old order. Default: auto.
+  bt_wireless_proxy_rendezvous_mode = "auto"
+
+  # EXPERIMENTAL Proxy car-wifi-mitm HU-first mode: seconds to keep the HU RFCOMM connection open while waiting for the phone AA RFCOMM connection. Default: 30.
+  bt_wireless_proxy_hu_first_wait_phone_secs = 30
+
+  # EXPERIMENTAL Proxy: RFCOMM channel for HU AA Wireless profile. Leave empty or use 0 for BlueZ SDP/ConnectProfile auto-discovery; set a positive value to force manual RFCOMM.
+  bt_wireless_proxy_hu_channel = 0
+
+  # EXPERIMENTAL Proxy probe mode: after WifiStartRequest, try a TCP connection to the HU AA endpoint before sending WifiConnectStatus.
+  bt_wireless_proxy_tcp_probe = true
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: base Wi-Fi interface. Empty falls back to global iface. In proxy_ap this starts as the base/single-radio interface; in external_ap this is the phone-facing AP interface, usually wlan0.
+  bt_wireless_proxy_car_wifi_base_iface = "wlan0"
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: optional shell command template for joining the HU Wi-Fi. Placeholders: {iface}, {ssid}, {bssid}, {key}, {security}. Non-empty custom command overrides automatic nmcli/wpa_cli join.
+  bt_wireless_proxy_car_wifi_join_cmd = ""
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: if true and no custom command is configured, try to join HU Wi-Fi automatically using nmcli, wpa_cli, or wpa_supplicant/udhcpc.
+  bt_wireless_proxy_car_wifi_auto_join = false
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: automatic Wi-Fi join backend. auto/legacy keeps the old fallback chain. wpactrl starts/uses wpa_supplicant and configures it through its control socket. nmcli, wpa_cli, and wpa_supplicant force a single backend.
+  bt_wireless_proxy_wifi_join_control = "auto"
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: seconds to wait for /var/run/wpa_supplicant/<iface> to appear after starting wpa_supplicant in wpactrl mode. Default: 12.
+  bt_wireless_proxy_wpactrl_socket_timeout_secs = 12
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: seconds to wait for the STA interface to associate to the HU/car SSID and have an IPv4 address after a Wi-Fi join attempt. Default: 30.
+  bt_wireless_proxy_wifi_association_timeout_secs = 30
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: seconds to allow udhcpc/DHCP attempts to run. Default: 30.
+  bt_wireless_proxy_dhcp_timeout_secs = 30
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: keep aa-proxy AP up and join HU Wi-Fi through a separate managed STA interface. Requires AP+managed support on the same channel.
+  bt_wireless_proxy_car_wifi_keep_ap = false
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: managed STA interface used to join HU/car Wi-Fi. In external_ap, empty auto-detects a USB WLAN interface and falls back to wlan1.
+  bt_wireless_proxy_car_wifi_sta_iface = ""
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: optional PHY used to create the managed STA interface in keep_ap/proxy_ap mode. Empty auto-detects from the AP interface. Example: phy1.
+  bt_wireless_proxy_car_wifi_sta_phy = ""
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: existing AP interface to keep when keep_ap is true. Empty falls back to iface.
+  bt_wireless_proxy_car_wifi_ap_iface = ""
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: IP address to place in the phone-facing WifiStartRequest. Empty means auto-detect using route/interface IPv4.
+  bt_wireless_proxy_rewrite_ip = ""
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: local TCP port where aa-proxy listens for the phone, default 5288.
+  bt_wireless_proxy_listen_port = 5288
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: if WifiVersionRequest includes WifiProjectionProtocolInfo ip/port and HU does not send explicit WifiStartRequest, synthesize WifiStartRequest from that endpoint. Default: true.
+  bt_wireless_proxy_use_version_projection_fallback = true
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: send synthetic WPP WifiPingRequest keepalive frames to the HU while aa-proxy is joining Wi-Fi / starting proxy_ap and waiting for phone Wi-Fi bootstrap. Default: false.
+  bt_wireless_proxy_wpp_keepalive = false
+
+  # EXPERIMENTAL Proxy car-wifi-mitm: interval in milliseconds for synthetic HU WPP WifiPingRequest keepalives. Default: 2000; minimum used by code: 250.
+  bt_wireless_proxy_wpp_keepalive_interval_ms = 2000
+
+### 🚗 HEAD UNIT LINK
+  # Enable legacy USB mode (some head units / cars need this enabled for compatibility)
+  legacy = false
+
+  # Require the HU to send USB ACCESSORY=START before switching to the accessory gadget. Useful when the car/HU sleeps while aa-proxy-rs keeps running; prevents stale accessory attachment. Default: false.
+  usb_gadget_require_accessory_start = false
+
+  # Detach USB gadgets after each AA session ends before the next connection attempt. Helps HUs that do not fully power-cycle USB during short sleep/wake cycles. Default: false.
+  usb_gadget_rearm_on_disconnect = false
+
+  # Cooldown in milliseconds after detaching USB gadgets during usb_gadget_rearm_on_disconnect. Default: 1500.
+  usb_gadget_rearm_cooldown_ms = 1500
+
+  # Override early AA/WPP protocol/PDK version advertised to the phone. Useful for phone-side features gated by newer HU PDK versions. Default: false.
+  protocol_version_override_enabled = false
+
+  # Protocol/PDK major version to advertise when protocol_version_override_enabled is true. Default: 5.
+  protocol_version_override_major = 5
+
+  # Protocol/PDK minor version to advertise when protocol_version_override_enabled is true. Default: 1.
+  protocol_version_override_minor = 1
+
+  # Enable wired USB connection to phone (VID:PID should be specified; zero is wildcard and can be used for single or both fields).
+  # You can obtain it e.g. using `lsusb` after connecting the phone, then use e.g. "18d1:0" which will handle the specified phone vendor ID (Google Pixel in this example).
+  wired = ""
+
+  # UDC controller name (used in special configurations)
+  udc = ""
+
+  # Connect to HU USB before Bluetooth handshake
+  change_usb_order = false
+
+  # Delay the launch of `aa-proxy-rs` by a specified number of seconds (range: 0–254). Default: 0. Intended for specific scenarios (e.g. non-standard head units).
+  startup_delay = 0
+
+### 🕵️ MITM
+  # Enable MITM mode. Required for every option inside this section.
+  mitm = true
+
+  # TLS backend used for MITM: "rustls" (default) or "openssl". rustls suits modern head units. Use "openssl" for legacy head units that only offer cipher suites rustls does not implement, such as TLS_RSA_WITH_AES_128_CBC_SHA (0x002F).
+  tls_backend = "rustls"
+
+  # Base TCP port for raw decrypted media stream dumping/debugging. Requires `mitm = true`.
+  #
+  # One TCP listener is created per media sink using fixed offsets:
+  # +0 main video,
+  # +1 cluster video,
+  # +2 auxiliary video,
+  # +3 guidance/TTS audio,
+  # +4 system audio,
+  # +5 media audio,
+  # +6 telephony audio.
+  #
+  # Example: `12345` exposes main video on `tcp://127.0.0.1:12345`.
+  # Useful for ffplay/VLC debugging and stream inspection.
+  #
+  # Set to 0 or leave unset to disable.
+  media_dump_base_port = ""
+
+### 🕵️ MITM / 🖥️ Display injection
+  # TOML file used to store injected display service profiles. Supports multiple main/cluster/auxiliary media sink entries. Display IDs are assigned automatically from the current SDR. Default: `/data/aa-proxy-rs/inject-displays.toml`. Supersedes the legacy `inject_display_types` / `inject_cluster_*` / `inject_aux_*` fields below (kept for backward compatibility but ignored at runtime).
+  inject_displays_file = "/etc/aa-proxy-rs/inject-displays.toml"
+
+### 🕵️ MITM / 🔊 Audio
+  # Override the `max_unacked` setting for audio channels. May improve audio performance on some head units but worsen it on others. Adjust experimentally only if you experience audio stuttering. 0 = leave unchanged.
+  audio_max_unacked = 0
+
+  # Disable the media sink. Prevents regular audio from being routed to the head unit (it stays on the phone), allowing a passenger to e.g. watch YouTube locally on the phone with audio.
+  disable_media_sink = false
+
+  # Disable the TTS sink. Like `disable_media_sink`, but for navigation voice guidance.
+  disable_tts_sink = false
+
+### 🕵️ MITM / 🚦 Driving restrictions
+  # Enable video playback while driving. Intended for passengers only — do not watch video while driving. May require `developer_mode` as well, depending on phone and Android version.
+  video_in_motion = false
+
+  # Level of sensor spoofing applied by `video_in_motion`. `low` only force park in gear; `full` (default) also spoofs speed, GPS, accelerometer, gyroscope and other motion sensors.
+  level_video_in_motion = "full"
+
+  # Remove tap restrictions. Affects the situation where tapping too frequently while driving triggers a temporary lockout warning. May not work, depending on phone and Android version.
+  remove_tap_restriction = false
+
+  # Enable speed collection from the speed sensor for the websocket. By design this disables `remove_tap_restriction`.
+  collect_speed = false
+
+  # Disable driving restrictions.
+  disable_driving_status = false
+
+### 🕵️ MITM / 📊 Sensors
+  # Enable odometer sensor reporting (for head units that don't provide this data). When active, the current reading can be pushed via POST /odometer (km).
+  odometer = false
+
+  # Enable tire pressure sensor reporting (for head units that don't provide this data). When active, readings for up to 4 tires can be pushed via POST /tire-pressure (kPa, order: FL, FR, RL, RR).
+  tire_pressure = false
+
+### 🕵️ MITM / ⚡ Session & compatibility
+  # Force DPI. 0 = don't change DPI. If unsure, start experimenting with e.g. 130. Logs are helpful — they show both the original HU value and the new one.
+  dpi = 113
+
+  # Add vendor channel for the Android companion app
+  add_vendor_channel = false
+
+  # Enable developer mode. Emulates a Google Head Unit, allowing installation and use of apps that are normally unavailable. Commonly used by developers when testing or developing new applications.
+  developer_mode = false
+
+  # Remove the Bluetooth service from the `service discovery response`. May help on head units with integrated wireless Android Auto.
+  remove_bluetooth = false
+
+  # Inject a synthetic Bluetooth service into the ServiceDiscoveryResponse that points the phone to the real HU Bluetooth MAC for HFP/call routing. Enable only when the phone is already paired with the real HU Bluetooth device. Default: false.
+  bt_real_hu_passthrough_enabled = false
+
+  # Real HU Bluetooth MAC address advertised by bt_real_hu_passthrough_enabled. Format: XX:XX:XX:XX:XX:XX. Pairing/auth is not implemented here; aa-proxy replies already_paired=true only.
+  bt_real_hu_passthrough_address = ""
+
+  # Register a dummy A2DP Sink SDP profile on the local Bluetooth adapter and strip the BluetoothService entry from the `service discovery response`. Keeps Android Auto from locking the session into Car-Kit/HFP-only audio routing, so the vehicle's own Bluetooth media audio stays untouched. No audio is actually streamed through this profile. Default: false.
+  bt_a2dp_sink_enabled = false
+
+  # Remove the Wi-Fi service from the `service discovery response`. May help on head units with integrated wireless Android Auto.
+  remove_wifi = false
+
+  # Enable a Waze workaround for LHT (Left-Hand Traffic) countries by swapping U_TURN_LEFT with U_TURN_RIGHT in navigation and HUD.
+  waze_lht_workaround = false
+
+  # Substitute ROUNDABOUT_ENTER_AND_EXIT_CW/CCW maneuvers with their _WITH_ANGLE counterparts, synthesizing an exit angle from the exit number (not real map data). Works around head units that render exit-number roundabout icons badly. Improves rendering only for some head units/car configurations. Independent of waze_lht_workaround. Default: false.
+  roundabout_angle_synthesis_enabled = false
+
+  # Stop automatic reconnection after manually selecting `Disconnect` in Android Auto on the phone. aa-proxy will not attempt to reconnect until the next restart or until a Bluetooth connection is initiated manually from the phone.
+  stop_on_disconnect = false
+
+  # Path to a script or executable invoked on HU media-key long press.
+  # Two arguments are always appended by aa-proxy-rs:
+  # 1. keycode (u32) — Android key code of the long-pressed key
+  # 2. elapsed_ms — how long the key was held, in milliseconds
+  # Additional arguments embedded in the path are supported (shell-word splitting).
+  # When empty or absent, HU media-key interception is fully disabled.
+  hu_button_handler = ""
+
+### 🕵️ MITM / 🖼️ SDR UI overrides
+  # Enable per-vehicle SDR UI config overrides for `content_insets`, `stable_content_insets`, and `margins` in media sink video configs.
+  sdr_ui_override_enabled = false
+
+  # Automatically create disabled SDR UI override profiles from the first observed ServiceDiscoveryResponse for each vehicle.
+  sdr_ui_override_autocreate_profiles = false
+
+  # TOML file used to store per-vehicle and optional per-phone SDR UI overrides. Default: `/data/aa-proxy-rs/sdr-ui-overrides.toml`.
+  sdr_ui_override_file = "/etc/aa-proxy-rs/sdr-ui-overrides.toml"
+
+### 🕵️ MITM / 🗺️ Album art injection
+  # Enable replacing MediaPlaybackMetadata album art. Requires mitm = true. Disabled by default.
+  map_album_art_enabled = false
+
+  # Artwork provider for MediaPlaybackMetadata album art. file reads map_album_art_file. rest and companion use the last PNG uploaded via POST /map-album-art. rust_h264 decodes the selected injected display video stream. If the selected source has no art yet, metadata is left untouched.
+  map_album_art_source = "file"
+
+  # PNG file used as replacement album art when map_album_art_source=file. If missing, metadata is left untouched.
+  map_album_art_file = "/data/aa-proxy-rs/map-album-art.png"
+
+  # Maximum replacement PNG size accepted by all album-art providers. 0 disables the limit. Default: 0.
+  map_album_art_max_bytes = 0
+
+  # Plaintext payload size for FIRST fragments when re-fragmenting rewritten album-art metadata. Continuation fragments use this value + 4 to match the observed AA/OpenAuto layout. 0 uses default 16120.
+  map_album_art_chunk_bytes = 16120
+
+  # Optional compatibility workaround for HUs that ignore artwork-only MediaPlaybackMetadata updates. When enabled, outbound rewritten metadata alternates duration_seconds between the cached value and cached value + 1. The cached phone metadata template is not modified. Default: false.
+  map_album_art_duration_tick_enabled = false
+
+  # How EV forecast text is written into MediaPlaybackMetadata while album-art rewrite is active. album_art = only album art/no text change; song_prefix = prefix song/title with EV text; artist_field = move original artist before song and put EV text in artist field; artist_prefix = prefix artist field with EV text, song/title unchanged. Default: album_art.
+  map_album_art_ev_text_mode = "album_art"
+
+  # Maximum age for EV forecast prefix in milliseconds. 0 disables expiry. Default: 0.
+  map_album_art_ev_prefix_max_age_ms = 0
+
+  # When Android Auto sends an empty/null or partially-null VehicleEnergyForecast, keep using cached valid fields for websocket consumers and album-art EV text instead of clearing the EV prefix. Default: true.
+  vehicle_energy_forecast_keep_last_on_null = true
+
+  # Injected display id to sample when map_album_art_source is companion or rust_h264, for example aux-1 or cluster-1 from inject-displays.toml.
+  map_album_art_video_display_id = "aux-1"
+
+  # Minimum interval between sampled video frames for runtime artwork providers. Default: 2000 ms.
+  map_album_art_capture_interval_ms = 2000
+
+  # Output artwork size after crop/resize for runtime video providers. Default: 256 px.
+  map_album_art_output_size_px = 256
+
+  # Enable crop before resizing runtime video frames into album art. Default: true. Set false to use the full decoded frame.
+  map_album_art_crop_enabled = true
+
+  # Runtime video crop mode. percent interprets map_album_art_crop_x/y/w/h as percentages; pixel interprets them as exact decoded-frame pixels. Default: percent.
+  map_album_art_crop_mode = "percent"
+
+  # Runtime video crop X offset. Interpreted by map_album_art_crop_mode. Default: 30 in percent mode. Example for 800x480 with 550x230 margins: 275 in pixel mode.
+  map_album_art_crop_x = 30
+
+  # Runtime video crop Y offset. Interpreted by map_album_art_crop_mode. Default: 20 in percent mode. Example for 800x480 with 550x230 margins: 115 in pixel mode.
+  map_album_art_crop_y = 20
+
+  # Runtime video crop width. Interpreted by map_album_art_crop_mode. Default: 40 in percent mode. Example for 800x480 with 550x230 margins: 250 in pixel mode.
+  map_album_art_crop_w = 40
+
+  # Runtime video crop height. Interpreted by map_album_art_crop_mode. Default: 40 in percent mode. Example for 800x480 with 550x230 margins: 250 in pixel mode.
+  map_album_art_crop_h = 40
+
+### 🕵️ MITM / 🔌 EV routing
+  # Enable EV routing
+  ev = false
+
+  # Path to an executable that provides EV battery data (e.g. from an OBD dongle). Started automatically when an Android Auto session begins and terminated when it ends. Any parameters embedded in the path are passed as-is.
+  ev_battery_logger = ""
+
+  # EV charging connector types supported by your car. If left empty, the default is EV_CONNECTOR_TYPE_MENNEKES.
+  ev_connector_types = ""
+
+### 🕵️ MITM / 🎧 Call audio bridge (Bluetooth SCO)
+  # Enable the experimental Bluetooth SCO/eSCO call-audio bridge/listener.
+  bt_sco = false
+
+  # When `bt_sco` is enabled, keep the Android Auto Bluetooth profile / RFCOMM connection alive after Wi-Fi bootstrap so the phone continues routing call audio to aa-proxy-rs.
+  bt_sco_keep_bluetooth_alive = true
+
+### 🕵️ MITM / 🎧 Call audio bridge (Bluetooth SCO) / 📥 Downlink → AA media
+  # Bridge Bluetooth SCO call downlink into a selected Android Auto PCM sink.
+  bt_sco_media_bridge = false
+
+  # Preferred AA PCM sink for SCO downlink.
+  bt_sco_media_bridge_audio_type = "media"
+
+  # SCO downlink output gain (percent) after conversion. 100 = no gain. Try 300 if call audio is quiet.
+  bt_sco_media_bridge_gain_percent = 300
+
+  # Limiter applied after gain. `off` preserves the proven path; `hard` clips peaks earlier; `soft` compresses peaks more gently.
+  bt_sco_media_bridge_limiter = "off"
+
+  # SCO 8 kHz → AA 48 kHz resampler. `repeat` preserves the proven path; `linear` smooths the 6× upsampling and may reduce crackle.
+  bt_sco_media_bridge_resampler = "repeat"
+
+  # Maximum converted AA PCM chunks buffered for the SCO media bridge. 128 is a safe default; lower values reduce latency.
+  bt_sco_media_bridge_ring_capacity = 128
+
+  # When SCO connects, send MEDIA_MESSAGE_START on the selected existing / configured PCM sink before piggyback DATA. Does not send CHANNEL_OPEN or SETUP.
+  bt_sco_media_bridge_start_existing = true
+
+  # Delay MEDIA_MESSAGE_START / DATA until the SCO downlink contains non-silent audio. Useful when SCO opens but initially carries silence.
+  bt_sco_media_bridge_start_on_first_audio = true
+
+  # Peak threshold for `start_on_first_audio`. Converted 16-bit PCM frames below this value are treated as silence. 64 is conservative.
+  bt_sco_media_bridge_audio_peak_threshold = 256
+
+  # Fallback timeout for `start_on_first_audio`. If no non-silent SCO downlink is seen within this time, START / DATA begins anyway.
+  bt_sco_media_bridge_start_timeout_ms = 5000
+
+  # When SCO disconnects, send MEDIA_MESSAGE_STOP on the selected existing PCM sink. Useful to reset DHU/HU audio renderer state between calls.
+  bt_sco_media_bridge_stop_existing_on_disconnect = true
+
+  # Pace outgoing AA DATA packets at a fixed cadence instead of sending immediately when converted SCO chunks arrive.
+  bt_sco_media_bridge_fixed_cadence = false
+
+  # DATA packet cadence in milliseconds when fixed cadence is enabled. 22 ms matches the current 6-SCO-packet chunk timing closely.
+  bt_sco_media_bridge_cadence_ms = 22
+
+  # Minimum converted-audio buffer before the first fixed-cadence DATA packet. 60 ms is conservative.
+  bt_sco_media_bridge_jitter_buffer_ms = 60
+
+### 🕵️ MITM / 🎧 Call audio bridge (Bluetooth SCO) / 📤 AA mic → SCO uplink
+  # Bridge Android Auto HU microphone PCM into Bluetooth SCO call uplink.
+  bt_sco_mic_bridge = false
+
+  # Send MEDIA_MESSAGE_MICROPHONE_REQUEST open/close when SCO connects/disconnects. Disable for passive mic logging only.
+  bt_sco_mic_request = true
+
+  # Microphone uplink gain percent after echo processing. 100 = no gain.
+  bt_sco_mic_gain_percent = 100
+
+  # Microphone echo handling. `off` preserves current behavior; `ducking` lowers mic while downlink audio is active.
+  bt_sco_mic_echo_control = "ducking"
+
+  # Downlink peak threshold that marks far-end audio as active for ducking.
+  bt_sco_mic_duck_threshold = 700
+
+  # Mic gain percent while far-end / downlink audio is active. Lower values reduce echo more but hurt full-duplex speech.
+  bt_sco_mic_duck_percent = 35
+
+  # How long to keep ducking after the last active downlink frame.
+  bt_sco_mic_duck_hold_ms = 180
+
+  # Maximum 60-byte SCO uplink packets buffered for the microphone bridge. 256 is a safe default.
+  bt_sco_mic_uplink_ring_capacity = 256
+
+### ⚙️ SYSTEM
+  # Enable SSH server
+  enable_ssh = false
+
+  # Webserver bind address/port; empty = disabled
+  webserver = ""
+
+  # Log file path. By default it is saved to `/var/log` in `tmpfs`/memory. To save it to SD card (appended, not replaced), change it to e.g. `/data/aa-proxy-rs.log`.
+  logfile = "/dev/null"
+
+  # Interval of showing data transfer statistics in the log (0 = disabled) [seconds]
+  stats_interval = 0
+
+  # Data transfer timeout [seconds]. After this idle time the session will be reconnected.
+  timeout_secs = 10
+
+  # Enable Rust panic report files. Normal runtime cost is negligible; stacktrace capture and file write happen only when a panic occurs.
+  crash_handler_enabled = false
+
+  # Directory where Rust panic reports are written with timestamped filenames. Default: `/data/aa-proxy-rs/crashes`.
+  crash_dir = "/data/aa-proxy-rs/crashes"
+
+  # Configure Ethernet mode (optional). Options:
+  # - `DHCP` (case-insensitive): dynamic IP assignment
+  # - Static IP: e.g. `192.168.100.1/24`
+  # - Leave blank to disable
+  eth_mode = ""
+
+### 🧰 DEVELOPER
+  # Use a Google Android Auto Desktop Head Unit emulator instead of a real HU (listens on TCP 5277). For usage without a real SBC.
+  dhu = false
+
+  # Optional direct TCP address for the Android Auto Head Unit Server on the phone/MD side, e.g. `127.0.0.1:5278` or `192.168.1.9:5279`. Leave empty to keep the normal USB/Bluetooth/Wi-Fi MD transport. When set, aa-proxy-rs skips the Bluetooth/Wi-Fi AA handshake and opens this TCP connection only after the HU/DHU side is ready. Also don't forget to run `socat TCP-LISTEN:5279,bind=0.0.0.0,reuseaddr,fork TCP:127.0.0.1:5278`.
+  aa_server_tcp_addr = ""
+
+  # Enable the USB serial gadget (ttyGS0) for low-level console debugging. Should be disabled during normal Android Auto operation.
+  usb_serial_console = false
+
+### 🐞 DEBUG
+  # Enable global debug logging. This also enables many non-packet debug messages.
+  debug = false
+
+  # Disable debug level on console; save it only to the log file. Helpful when using `hexdump_level`.
+  disable_console_debug = true
+
+  # Hex dump level.
+  hexdump_level = "Disabled"
+
+  # Enable packet debug output independently from global debug logging. When enabled, pkt_debug lines are emitted at INFO level, so `debug` can stay disabled to avoid unrelated debug noise.
+  pkt_debug = false
+
+  # Enable packet debug filtering. This narrows pkt_debug output on top of `hexdump_level`.
+  pkt_debug_filter_enabled = false
+
+### 🐞 DEBUG / 🔍 Packet debug filter
+  # Packet debug proxy filter.
+  pkt_debug_filter_proxy = "both"
+
+  # Stages to include. Empty = all.
+  pkt_debug_filter_stages = "decrypted_input,decrypted_output"
+
+  # Service kinds to filter. Empty = all.
+  pkt_debug_filter_service_kinds = ""
+
+  # Comma-separated numeric channel IDs to include. Empty = all. Examples: `0x00,0x08,8`.
+  pkt_debug_filter_channels = "0"
+
+  # Comma-separated numeric channel IDs to exclude. Examples: `0x01,1`.
+  pkt_debug_filter_exclude_channels = ""
+
+  # Comma-separated numeric message IDs to include. Empty = all. Examples: `0x0006,6`.
+  pkt_debug_filter_message_ids = ""
+
+  # Comma-separated numeric message IDs to exclude.
+  pkt_debug_filter_exclude_message_ids = ""
+
+  # When packet debug filtering is enabled, also print decoded protobuf text for known control messages.
+  pkt_debug_filter_pretty_proto = true
+
+  # When packet debug filtering is enabled, truncate payload dumps to this many bytes. 0 disables truncation.
+  pkt_debug_filter_max_payload_bytes = 4096
+
+  # Passive debug helper: reassemble fragmented decrypted frames and log the full frame at LAST without changing forwarding. Uses existing pkt_debug filters and max payload limit.
+  pkt_debug_full_frame_enabled = false
+
+### 🦾 WASM HOOKS
+  # Directory where WASM hook files are loaded from. Each script gets read-only access only to a private subfolder named after the .wasm file stem. Default: /data/wasm-hooks.
+  wasm_hooks_dir = "/data/wasm-hooks"
+
+  # Maximum linear memory size, in MiB, allowed for each live WASM script instance. Default: 5.
+  wasm_script_memory_limit_mb = 5
+
+  # Maximum number of component/core instances allowed inside each WASM script store. Default: 16.
+  wasm_script_instance_limit = 16
+
+  # Maximum number of memories allowed inside each WASM script store. Default: 4.
+  wasm_script_memory_count_limit = 4
+
+  # Maximum number of tables allowed inside each WASM script store. Default: 8.
+  wasm_script_table_limit = 8
+
+  # Maximum number of table elements allowed inside each WASM script store. Default: 512.
+  wasm_script_table_elements_limit = 512
+
+  # Epoch deadline for modify-packet calls. The host increments epochs every 10 ms, so 100 is roughly 1 second. Default: 100.
+  wasm_script_packet_epoch_deadline = 100
+
+  # Epoch deadline for on-create, on-destroy, custom-configs, on-config-changed, and websocket calls. The host increments epochs every 10 ms, so 1000 is roughly 10 seconds. Default: 1000.
+  wasm_script_lifecycle_epoch_deadline = 1000
+inject_display_types = ""
+inject_add_input_sources = false
+inject_cluster_display_id = 1
+inject_cluster_width_margin = 270
+inject_cluster_height_margin = 344
+inject_cluster_density = 180
+inject_cluster_viewing_distance = 100
+inject_cluster_codec_resolution = "VIDEO_800x480"
+inject_cluster_touch_width = 1280
+inject_cluster_touch_height = 720
+inject_aux_display_id = 2
+inject_aux_width_margin = 0
+inject_aux_height_margin = 0
+inject_aux_density = 160
+inject_aux_viewing_distance = 300
+inject_aux_touch_width = 1280
+inject_aux_touch_height = 720
+inject_force_focus_without_tap = false
+wifi_version = 4
+band = "2.4"
+channel = 11
+media_wait_for_live_idr = true

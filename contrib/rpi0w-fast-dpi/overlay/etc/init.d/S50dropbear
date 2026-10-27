@@ -1,0 +1,6 @@
+#!/bin/sh
+# Frozen appliance profile: SSH disabled; restore stock script to re-enable.
+case "$1" in
+    start|stop|restart|reload) exit 0 ;;
+    *) echo "Usage: $0 {start|stop|restart|reload}" >&2; exit 1 ;;
+esac

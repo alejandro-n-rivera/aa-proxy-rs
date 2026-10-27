@@ -402,3 +402,7 @@ However, using `setup-dev.sh` is the recommended approach.
 - https://github.com/f1xpl/openauto
 - https://github.com/gamelaster/opengal_proxy
 - https://github.com/tomasz-grobelny/AACS
+
+## Original Pi Zero W DPI/startup branch
+
+The optional [DPI113 and startup appliance profile](contrib/rpi0w-fast-dpi/README.md) documents this branch's focused fixes, image overlay, build requirements and measured limits. It preserves the tested v1.1.0 base; its appliance settings are opt-in.
