@@ -1,0 +1,8 @@
+#!/bin/sh
+# Generated config lives in /run, so this cache never survives a reboot.
+# Validate raw inputs and output, including edits made by the web UI or SSH.
+stamp=/var/run/aa-proxy-hostapd.sha256
+if [ -f "$stamp" ] && sha256sum -c "$stamp" >/dev/null 2>&1; then
+    exit 0
+fi
+exec /usr/bin/aa-proxy-rs --generate-hostapd

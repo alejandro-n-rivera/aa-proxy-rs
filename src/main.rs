@@ -102,6 +102,9 @@ struct Args {
     /// Generate system config and exit
     #[clap(short, long)]
     generate_system_config: bool,
+    /// Generate system and hostapd configuration in one boot invocation
+    #[clap(long)]
+    generate_boot_config: bool,
     /// Generate hostapd config and exit
     #[clap(short = 'o', long)]
     generate_hostapd: bool,
@@ -1258,7 +1261,7 @@ fn render_template(template: &str, vars: &[(&str, &str)]) -> String {
     output
 }
 
-fn generate_hostapd_conf(config: AppConfig) -> std::io::Result<()> {
+fn generate_hostapd_conf(config: &AppConfig) -> std::io::Result<()> {
     info!(
         "{} 🗃️ Generating config from input template: <bold><green>{}</>",
         NAME, HOSTAPD_CONF_IN
@@ -1351,6 +1354,57 @@ fn generate_usb_strings(input: &str, output: &str) -> std::io::Result<()> {
     fs::write(output, rendered)
 }
 
+// /run is recreated at every boot. Hashes, rather than mtimes, remain correct
+// with the Pi's initially unset wall clock and detect config/template/output edits.
+fn write_hostapd_stamp(config_path: &std::path::Path, allow_cache: bool) {
+    use sha2::{Digest, Sha256};
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let stamp = "/var/run/aa-proxy-hostapd.sha256";
+    if !allow_cache
+        || config_path
+            != std::path::Path::new(concat!(aa_proxy_rs::base_config_dir!(), "/config.toml"))
+    {
+        let _ = fs::remove_file(stamp);
+        return;
+    }
+    let result = (|| -> std::io::Result<()> {
+        let paths = [
+            config_path,
+            std::path::Path::new(HOSTAPD_CONF_IN),
+            std::path::Path::new(HOSTAPD_CONF_OUT),
+        ];
+        let mut text = String::new();
+        for path in paths {
+            let name = path.to_string_lossy();
+            if name.contains(['\n', '\\']) {
+                return Err(std::io::Error::other("unsupported checksum filename"));
+            }
+            text.push_str(&format!(
+                "{:x}  {}\n",
+                Sha256::digest(fs::read(path)?),
+                name
+            ));
+        }
+        let tmp = format!("{stamp}.tmp");
+        let mut file = fs::OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .write(true)
+            .mode(0o600)
+            .open(&tmp)?;
+        file.write_all(text.as_bytes())?;
+        fs::rename(tmp, stamp)
+    })();
+    if let Err(e) = result {
+        let _ = fs::remove_file(stamp);
+        warn!(
+            "{} hostapd checksum cache unavailable: {}; network setup will regenerate",
+            NAME, e
+        );
+    }
+}
+
 fn main() -> Result<()> {
     let started = Instant::now();
 
@@ -1369,7 +1423,6 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
-    let config_json = AppConfig::load_config_json().expect("Invalid embedded config.json");
 
     let web_only = args.web_only.is_some();
     if let Some(Some(ref bindaddr)) = args.web_only {
@@ -1391,7 +1444,7 @@ fn main() -> Result<()> {
     );
 
     // generate system configs from template and exit
-    if args.generate_system_config {
+    if args.generate_system_config || args.generate_boot_config {
         generate_usb_strings(UMTPRD_CONF_IN, UMTPRD_CONF_OUT)
             .expect("error generating config from template");
         generate_network_conf(&config, DNSMASQ_CONF_IN, DNSMASQ_CONF_OUT)
@@ -1409,14 +1462,21 @@ fn main() -> Result<()> {
         let mut perms = fs::metadata(GADGET_INIT_OUT)?.permissions();
         perms.set_mode(0o755); // rwxr-xr-x
         fs::set_permissions(GADGET_INIT_OUT, perms)?;
-
+        if args.generate_boot_config {
+            generate_hostapd_conf(&config).expect("error generating hostapd config");
+            write_hostapd_stamp(&args.config, !config.runtime_wifi_defaults_used);
+        }
         return Ok(());
     }
     // generate hostapd config from template and exit
     if args.generate_hostapd {
-        generate_hostapd_conf(config).expect("error generating config from template");
+        generate_hostapd_conf(&config).expect("error generating config from template");
+        write_hostapd_stamp(&args.config, !config.runtime_wifi_defaults_used);
         return Ok(());
     }
+
+    // Generator commands do not need the web UI's embedded settings metadata.
+    let config_json = AppConfig::load_config_json().expect("Invalid embedded config.json");
 
     // show SBC model
     let mut led_support = false;
