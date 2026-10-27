@@ -1,0 +1,157 @@
+#!/bin/sh
+#
+# Configure USB gadget interfaces
+#
+
+MANUFACTURER="aa-proxy"
+PRODUCT="aa-proxy{{MODEL}}"
+SERIAL_NUMBER="{{SERIAL}}"
+
+ACCESSORY_GADGET_NAME="accessory"
+DEFAULT_GADGET_NAME="default"
+SERIAL_GADGET_NAME="serial"
+
+FUNCTIONFS_PATH=/dev/ffs-mtp
+DAEMON=umtprd
+PIDFILE="/var/run/$DAEMON.pid"
+
+CONFIG_FILE="/etc/aa-proxy-rs/config.toml"
+RETVAL=0
+
+start() {
+	RETVAL=0
+	# Use the direct shortcut only for an explicit, valid legacy=false line.
+	DIRECT_MODE=false
+	if grep -Eq '^[[:space:]]*legacy[[:space:]]*=[[:space:]]*false([[:space:]]*#.*)?[[:space:]]*$' "$CONFIG_FILE" 2>/dev/null; then
+		DIRECT_MODE=true
+	fi
+	printf "Setting up usb_gadgets: "
+	mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
+
+	# Setup accessory config
+	cd /sys/kernel/config/usb_gadget
+	if [ ! -d "$ACCESSORY_GADGET_NAME" ]; then
+		mkdir "$ACCESSORY_GADGET_NAME"
+		cd "$ACCESSORY_GADGET_NAME"
+		echo "0x18D1" > idVendor
+		echo "0x2D00" > idProduct
+		mkdir strings/0x409
+		echo "$SERIAL_NUMBER" > strings/0x409/serialnumber
+		echo "$MANUFACTURER" > strings/0x409/manufacturer
+		echo "$PRODUCT" > strings/0x409/product
+		mkdir functions/accessory.usb0
+		mkdir configs/c.1
+		echo 500 > configs/c.1/MaxPower
+		ln -s functions/accessory.usb0 configs/c.1
+	fi
+
+	# The default MTP function/helper is only used by legacy negotiation.
+	if [ "$DIRECT_MODE" = false ]; then
+		# Setup default config
+		cd /sys/kernel/config/usb_gadget
+		if [ ! -d "$DEFAULT_GADGET_NAME" ]; then
+			mkdir "$DEFAULT_GADGET_NAME"
+			cd "$DEFAULT_GADGET_NAME"
+			echo "0x18D1" > idVendor
+			echo "0x4EE1" > idProduct
+			mkdir strings/0x409
+			echo "$SERIAL_NUMBER" > strings/0x409/serialnumber
+			echo "$MANUFACTURER" > strings/0x409/manufacturer
+			echo "$PRODUCT" > strings/0x409/product
+			mkdir functions/ffs.mtp
+			mkdir configs/c.1
+			echo 500 > configs/c.1/MaxPower
+			ln -s functions/ffs.mtp configs/c.1
+		fi
+	fi
+
+	# Add USB serial gadget for console only if enabled in config.toml
+	if [ -f "$CONFIG_FILE" ] && grep -Eq '^\s*usb_serial_console\s*=\s*true\s*$' "$CONFIG_FILE"; then
+		# Setup serial config
+		cd /sys/kernel/config/usb_gadget
+		if [ ! -d "$SERIAL_GADGET_NAME" ]; then
+			mkdir "$SERIAL_GADGET_NAME"
+			cd "$SERIAL_GADGET_NAME"
+			echo "0x1D6B" > idVendor
+			echo "0x0104" > idProduct
+			mkdir strings/0x409
+			echo "$SERIAL_NUMBER" > strings/0x409/serialnumber
+			echo "$MANUFACTURER" > strings/0x409/manufacturer
+			echo "$PRODUCT" > strings/0x409/product
+			mkdir configs/c.1
+			mkdir configs/c.1/strings/0x409
+			echo "CDC ACM Configuration" > configs/c.1/strings/0x409/configuration
+			echo 500 > configs/c.1/MaxPower
+			mkdir functions/acm.usb0
+			ln -s functions/acm.usb0 configs/c.1/
+			echo $(ls /sys/class/udc/) > UDC
+		fi
+	else
+		# usb_serial_console is not true → create symlink to avoid getty spamming logs
+		if [ ! -e /dev/ttyGS0 ]; then
+			ln -sf /dev/tty63 /dev/ttyGS0
+		fi
+	fi
+
+	# Setting up usb_gadget:
+	echo "OK"
+
+	if [ "$DIRECT_MODE" = false ]; then
+		printf "Starting $DAEMON: "
+		mkdir -p "$FUNCTIONFS_PATH"
+		mount -t functionfs mtp "$FUNCTIONFS_PATH"
+		start-stop-daemon -S -b -q -m -p "$PIDFILE" -x "/usr/sbin/$DAEMON"
+		RETVAL=$?
+		sleep 1
+		[ $RETVAL = 0 ] && echo "OK" || echo "FAIL"
+	else
+		echo "Direct accessory mode: legacy MTP setup skipped"
+	fi
+}
+
+stop() {
+	printf "Disable usb_gadgets: "
+	cd /sys/kernel/config/usb_gadget || return 1
+	for gadget in "$ACCESSORY_GADGET_NAME" "$DEFAULT_GADGET_NAME" "$SERIAL_GADGET_NAME"; do
+		if [ -e "$gadget/UDC" ]; then
+			echo "" > "$gadget/UDC"
+		fi
+	done
+	echo "OK"
+
+	# Direct mode has no MTP process/mount. Stop only existing resources.
+	if [ -f "$PIDFILE" ]; then
+		start-stop-daemon -K -q -s 9 -p "$PIDFILE"
+		RETVAL=$?
+		rm -f "$PIDFILE"
+	fi
+	if mountpoint -q "$FUNCTIONFS_PATH"; then
+		umount "$FUNCTIONFS_PATH"
+	fi
+	if [ -d "$FUNCTIONFS_PATH" ]; then
+		rmdir "$FUNCTIONFS_PATH"
+	fi
+}
+
+restart() {
+	stop
+	sleep 1
+	start
+}
+
+case "$1" in
+	start)
+		start
+		;;
+	stop)
+		stop
+		;;
+	restart)
+		restart
+		;;
+	*)
+		echo "Usage: $0 {start|stop|restart}"
+		;;
+esac
+
+exit $RETVAL

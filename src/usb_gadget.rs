@@ -195,11 +195,13 @@ impl UsbGadgetState {
             cooldown.as_millis()
         );
 
-        if let Err(e) = self.disable(DEFAULT_GADGET_NAME) {
-            warn!(
-                "{} 🔌 USB Manager: failed to disable default gadget during re-arm: {e}",
-                NAME
-            );
+        if self.legacy {
+            if let Err(e) = self.disable(DEFAULT_GADGET_NAME) {
+                warn!(
+                    "{} 🔌 USB Manager: failed to disable default gadget during re-arm: {e}",
+                    NAME
+                );
+            }
         }
         if let Err(e) = self.disable(ACCESSORY_GADGET_NAME) {
             warn!(
