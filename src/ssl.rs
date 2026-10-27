@@ -212,3 +212,19 @@ pub fn ssl_builder(
         }
     }
 }
+
+/// Prepare immutable rustls configuration away from the async I/O worker.
+/// The alternate backend keeps its existing implementation.
+pub async fn ssl_builder_async(
+    backend: TlsBackend,
+    proxy_type: ProxyType,
+    keys_path: &str,
+) -> Result<(AaConnection, SslMemBuf)> {
+    match backend {
+        TlsBackend::Rustls => {
+            let (conn, buf) = ssl_rustls::ssl_builder_async(proxy_type, keys_path).await?;
+            Ok((AaConnection::Rustls(conn), SslMemBuf::Rustls(buf)))
+        }
+        TlsBackend::OpenSsl => ssl_builder(backend, proxy_type, keys_path),
+    }
+}

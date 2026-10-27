@@ -4111,11 +4111,13 @@ pub async fn proxy<D: IoDeviceTrait>(
     }
 
     let tls_backend = TlsBackend::from_config(&cfg.tls_backend);
-    let (mut ssl_conn, mut mem_buf) = match crate::ssl::ssl_builder(
+    let (mut ssl_conn, mut mem_buf) = match crate::ssl::ssl_builder_async(
         tls_backend,
         proxy_type,
         KEYS_PATH,
-    ) {
+    )
+    .await
+    {
         Ok(s) => s,
         Err(e) => {
             error!(
@@ -4872,12 +4874,18 @@ mod tests {
     fn legacy_vendor_sdr(vendor_name: &[u8]) -> Vec<u8> {
         fn varint(mut n: usize) -> Vec<u8> {
             let mut out = Vec::new();
-            while n >= 128 { out.push((n as u8 & 0x7f) | 0x80); n >>= 7; }
-            out.push(n as u8); out
+            while n >= 128 {
+                out.push((n as u8 & 0x7f) | 0x80);
+                n >>= 7;
+            }
+            out.push(n as u8);
+            out
         }
         fn field(number: u8, bytes: &[u8]) -> Vec<u8> {
             let mut out = vec![(number << 3) | 2];
-            out.extend(varint(bytes.len())); out.extend(bytes); out
+            out.extend(varint(bytes.len()));
+            out.extend(bytes);
+            out
         }
         // Service 1: MAIN video sink advertising density 160.
         let video_config = vec![0x28, 0xa0, 0x01];
@@ -4889,14 +4897,20 @@ mod tests {
         let mut vendor_service = vec![0x08, 0xfa, 0x01];
         vendor_service.extend(field(12, &vendor));
         let mut sdr = field(1, &main_service);
-        sdr.extend(field(1, &vendor_service)); sdr
+        sdr.extend(field(1, &vendor_service));
+        sdr
     }
 
     async fn check_legacy_vendor_dpi(vendor_name: &[u8]) {
         let input = legacy_vendor_sdr(vendor_name);
         let mut payload = vec![0x00, 0x06];
         payload.extend(&input);
-        let mut pkt = test_packet(0, ENCRYPTED | FRAME_TYPE_FIRST | FRAME_TYPE_LAST, None, &payload);
+        let mut pkt = test_packet(
+            0,
+            ENCRYPTED | FRAME_TYPE_FIRST | FRAME_TYPE_LAST,
+            None,
+            &payload,
+        );
         let mut ctx = test_ctx();
         let mut cfg = AppConfig::default();
         cfg.dpi = 130;
@@ -4907,14 +4921,29 @@ mod tests {
         let mut shared_cfg = Arc::new(RwLock::new(cfg.clone()));
         let (events, _) = tokio::sync::broadcast::channel(8);
         let action = pkt_modify_hook(
-            ProxyType::HeadUnit, PacketFlow::FromEndpoint, &mut pkt, &mut ctx, false,
+            ProxyType::HeadUnit,
+            PacketFlow::FromEndpoint,
+            &mut pkt,
+            &mut ctx,
+            false,
             Arc::new(tokio::sync::Mutex::new(None)),
             Arc::new(tokio::sync::Mutex::new(None)),
-            Arc::new(RwLock::new(None)), Arc::new(RwLock::new(None)),
-            Arc::new(RwLock::new(None)), &cfg, &mut shared_cfg, None, events,
-        ).await.expect("DPI hook must handle the legacy SDR");
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(None)),
+            Arc::new(RwLock::new(None)),
+            &cfg,
+            &mut shared_cfg,
+            None,
+            events,
+        )
+        .await
+        .expect("DPI hook must handle the legacy SDR");
         assert!(matches!(action, PacketAction::Forward));
-        assert_ne!(&pkt.payload[2..], &input, "SDR must be rewritten rather than silently forwarded");
+        assert_ne!(
+            &pkt.payload[2..],
+            &input,
+            "SDR must be rewritten rather than silently forwarded"
+        );
         let output = ServiceDiscoveryResponse::parse_from_bytes(&pkt.payload[2..])
             .expect("rewritten SDR must parse");
         let main = output.services.iter().find(|s| s.id() == 1).unwrap();
@@ -4925,8 +4954,17 @@ mod tests {
         // string schema, where the invalid-name case must fail at runtime.
         let mut expected_vendor = vec![0x0a, vendor_name.len() as u8];
         expected_vendor.extend(vendor_name);
-        assert_eq!(original_vendor.vendor_extension_service.write_to_bytes().unwrap(), expected_vendor);
-        assert_eq!(crate::vendor_ext::vendor_extension_service_id(&output), Some(251));
+        assert_eq!(
+            original_vendor
+                .vendor_extension_service
+                .write_to_bytes()
+                .unwrap(),
+            expected_vendor
+        );
+        assert_eq!(
+            crate::vendor_ext::vendor_extension_service_id(&output),
+            Some(251)
+        );
         assert_eq!(output.services.len(), 3);
     }
 

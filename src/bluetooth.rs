@@ -6231,7 +6231,11 @@ impl Bluetooth {
         Err(anyhow!("Unable to connect to the provided addresses").into())
     }
 
-    async fn send_params(wifi_config: WifiConfig, stream: &mut Stream) -> Result<()> {
+    async fn send_params(
+        wifi_config: WifiConfig,
+        stream: &mut Stream,
+        shared_config: SharedConfig,
+    ) -> Result<()> {
         use WifiInfoResponse::WifiInfoResponse;
         use WifiStartRequest::WifiStartRequest;
         let mut stage = 1;
@@ -6265,6 +6269,18 @@ impl Bluetooth {
         stage += 1;
         started = Instant::now();
         read_message(stream, stage, MessageId::WifiStartResponse, started).await?;
+        // The phone is joining the AP now; overlap immutable TLS preparation
+        // with that external wait, preserving the Bluetooth protocol sequence.
+        {
+            let cfg = shared_config.read().await;
+            if cfg.mitm
+                && !cfg.runtime_mitm_failed
+                && crate::ssl::TlsBackend::from_config(&cfg.tls_backend)
+                    == crate::ssl::TlsBackend::Rustls
+            {
+                crate::ssl_rustls::prewarm_during_wifi_wait(crate::base_config_dir!());
+            }
+        }
         stage += 1;
         started = Instant::now();
         read_message(stream, stage, MessageId::WifiConnectStatus, started).await?;
@@ -7818,7 +7834,7 @@ impl Bluetooth {
         };
         sdr_ui::set_current_phone_from_bt(&address.to_string(), phone_name);
 
-        Self::send_params(wifi_config.clone(), &mut stream).await?;
+        Self::send_params(wifi_config.clone(), &mut stream, shared_config.clone()).await?;
 
         // Record this device as a known-good AA device (only when using wildcard connect)
         if is_wildcard_connect {
@@ -7898,7 +7914,9 @@ impl Bluetooth {
                     }
 
                     // now restart handshake with the same params
-                    match Self::send_params(wifi_config.clone(), &mut stream).await {
+                    match Self::send_params(wifi_config.clone(), &mut stream, shared_config.clone())
+                        .await
+                    {
                         Ok(_) => {
                             tcp_start.notify_one();
                             continue;

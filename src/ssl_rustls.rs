@@ -19,8 +19,11 @@ use rustls::version::TLS12;
 use rustls::{
     ClientConfig, DigitallySignedStruct, DistinguishedName, ServerConfig, SignatureScheme,
 };
+use sha2::{Digest, Sha256};
+use std::fs;
 use std::io::{Read, Write};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -414,75 +417,212 @@ impl AaConnection {
 // Public builder
 // ---------------------------------------------------------------------------
 
-fn load_cert_and_key(
-    cert_path: &str,
-    key_path: &str,
-) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
-    let certs = CertificateDer::pem_file_iter(cert_path)
-        .map_err(|e| format!("cannot read cert {cert_path}: {e}"))?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e| format!("cannot parse cert {cert_path}: {e}"))?;
-    let key = PrivateKeyDer::from_pem_file(key_path)
-        .map_err(|e| format!("cannot read key {key_path}: {e}"))?;
-    Ok((certs, key))
+// Only immutable certificate/key configuration is cached. Every session gets
+// a new TLS state machine and the original no-resumption policy is retained.
+#[derive(Clone, Debug)]
+enum PreparedConfig {
+    Server(Arc<ServerConfig>),
+    Client(Arc<ClientConfig>),
 }
+struct CachedConfig {
+    fingerprint: [u8; 32],
+    config: PreparedConfig,
+}
+static SERVER_CONFIG: Mutex<Option<CachedConfig>> = Mutex::new(None);
+static CLIENT_CONFIG: Mutex<Option<CachedConfig>> = Mutex::new(None);
 
-/// Build an `AaConnection` for the given proxy side.
-///
-/// SSL role mapping (identical to original openssl ssl_builder):
-///   ProxyType::HeadUnit     → set_accept_state() → TLS **server** (phone connects to us)
-///   ProxyType::MobileDevice → set_connect_state() → TLS **client** (we connect to HU)
-pub fn ssl_builder(proxy_type: ProxyType, keys_path: &str) -> Result<(AaConnection, SslMemBuf)> {
-    let prefix = match proxy_type {
-        ProxyType::HeadUnit => "md",
-        ProxyType::MobileDevice => "hu",
+fn prepared_config(proxy_type: ProxyType, keys_path: &str) -> Result<PreparedConfig> {
+    let (prefix, slot) = match proxy_type {
+        ProxyType::HeadUnit => ("md", &SERVER_CONFIG),
+        ProxyType::MobileDevice => ("hu", &CLIENT_CONFIG),
     };
-    let cert_path = format!("{keys_path}/{prefix}_cert.pem");
-    let key_path = format!("{keys_path}/{prefix}_key.pem");
-    let (certs, key) = load_cert_and_key(&cert_path, &key_path)?;
-
-    let mem_buf = SslMemBuf::new();
+    // Read the actual inputs on every use: changed, deleted or invalid files
+    // must not silently reuse the old key/config, regardless of timestamps.
+    let cert_bytes = fs::read(format!("{keys_path}/{prefix}_cert.pem"))?;
+    let key_bytes = fs::read(format!("{keys_path}/{prefix}_key.pem"))?;
+    let mut hash = Sha256::new();
+    hash.update((cert_bytes.len() as u64).to_le_bytes());
+    hash.update(&cert_bytes);
+    hash.update(&key_bytes);
+    let fingerprint: [u8; 32] = hash.finalize().into();
+    let mut cached = slot.lock().map_err(|_| "TLS preparation lock poisoned")?;
+    if let Some(entry) = cached
+        .as_ref()
+        .filter(|entry| entry.fingerprint == fingerprint)
+    {
+        return Ok(entry.config.clone());
+    }
+    let started = Instant::now();
+    let cert = CertificateDer::pem_slice_iter(&cert_bytes)
+        .collect::<std::result::Result<Vec<_>, _>>()?
+        .into_iter()
+        .next()
+        .ok_or("no certificate in file")?;
+    let key = PrivateKeyDer::from_pem_slice(&key_bytes)?;
     let provider = default_provider();
-
-    let conn = match proxy_type {
+    let config = match proxy_type {
         ProxyType::HeadUnit => {
-            // Original: set_accept_state() → SSL server
-            // We talk to the phone acting as HU → we are TLS server
-            let cert0 = certs.into_iter().next().ok_or("no certificate in file")?;
-            let resolver = AaServerCertResolver::new(cert0, key)?;
+            let resolver = AaServerCertResolver::new(cert, key)?;
             let mut config = ServerConfig::builder_with_provider(provider)
                 .with_protocol_versions(&[&TLS12])?
                 .with_client_cert_verifier(AaClientCertVerifier::new())
                 .with_cert_resolver(resolver);
-            // Disable session resumption — AA devices may send tickets from a
-            // previous openssl session which rustls cannot honour, causing
-            // decryption failures on the application data.
             config.session_storage = Arc::new(rustls::server::NoServerSessionStorage {});
-            // Send no tickets so the peer cannot try to resume.
             config.send_tls13_tickets = 0;
-            AaConnection::Server(rustls::ServerConnection::new(Arc::new(config))?)
+            PreparedConfig::Server(Arc::new(config))
         }
         ProxyType::MobileDevice => {
-            // Original: set_connect_state() → SSL client
-            // We talk to the HU acting as phone → we are TLS client
-            let cert0 = certs.into_iter().next().ok_or("no certificate in file")?;
-            let resolver = AaClientCertResolver::new(cert0, key)?;
+            let resolver = AaClientCertResolver::new(cert, key)?;
             let mut config = ClientConfig::builder_with_provider(provider)
                 .with_protocol_versions(&[&TLS12])?
                 .dangerous()
                 .with_custom_certificate_verifier(AaServerCertVerifier::new())
                 .with_client_cert_resolver(resolver);
-            // Disable session resumption on the client side too.
             config.resumption = rustls::client::Resumption::disabled();
-            let server_name = "android.auto"
-                .try_into()
-                .map_err(|e| format!("server_name parse: {e}"))?;
-            AaConnection::Client(rustls::ClientConnection::new(
-                Arc::new(config),
-                server_name,
-            )?)
+            PreparedConfig::Client(Arc::new(config))
         }
     };
+    *cached = Some(CachedConfig {
+        fingerprint,
+        config: config.clone(),
+    });
+    log::info!(
+        "TLS prepare: rustls {} configuration ready in {}ms",
+        prefix,
+        started.elapsed().as_millis()
+    );
+    Ok(config)
+}
 
-    Ok((conn, mem_buf))
+fn connection_from_prepared(config: PreparedConfig) -> Result<(AaConnection, SslMemBuf)> {
+    let conn = match config {
+        PreparedConfig::Server(config) => {
+            AaConnection::Server(rustls::ServerConnection::new(config)?)
+        }
+        PreparedConfig::Client(config) => AaConnection::Client(rustls::ClientConnection::new(
+            config,
+            "android.auto".try_into()?,
+        )?),
+    };
+    Ok((conn, SslMemBuf::new()))
+}
+
+pub fn ssl_builder(proxy_type: ProxyType, keys_path: &str) -> Result<(AaConnection, SslMemBuf)> {
+    connection_from_prepared(prepared_config(proxy_type, keys_path)?)
+}
+
+// Heavy key parsing/validation never blocks the Tokio I/O worker, including
+// when a fast phone wins the race with background preparation.
+pub async fn ssl_builder_async(
+    proxy_type: ProxyType,
+    keys_path: &str,
+) -> Result<(AaConnection, SslMemBuf)> {
+    let path = keys_path.to_owned();
+    let config = tokio::task::spawn_blocking(move || prepared_config(proxy_type, &path)).await??;
+    connection_from_prepared(config)
+}
+
+pub fn prewarm_during_wifi_wait(keys_path: &str) {
+    let path = keys_path.to_owned();
+    tokio::spawn(async move {
+        let result = tokio::task::spawn_blocking(move || -> Result<()> {
+            prepared_config(ProxyType::HeadUnit, &path)?;
+            prepared_config(ProxyType::MobileDevice, &path)?;
+            Ok(())
+        })
+        .await;
+        match result {
+            Ok(Ok(())) => {
+                log::info!("TLS prepare: both rustls configurations warmed during phone Wi-Fi wait")
+            }
+            Ok(Err(e)) => log::warn!(
+                "TLS prepare: warmup failed; normal session setup will retry: {}",
+                e
+            ),
+            Err(e) => log::warn!(
+                "TLS prepare: warmup task failed; normal session setup will retry: {}",
+                e
+            ),
+        }
+    });
+}
+
+#[cfg(test)]
+mod startup_tls_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn prepared_configs_are_reused_but_sessions_are_fresh_and_keys_revalidated() {
+        let keys = std::env::var("AA_TEST_KEYS_PATH").expect("AA_TEST_KEYS_PATH required");
+        let first = prepared_config(ProxyType::HeadUnit, &keys).unwrap();
+        let second = prepared_config(ProxyType::HeadUnit, &keys).unwrap();
+        match (&first, &second) {
+            (PreparedConfig::Server(a), PreparedConfig::Server(b)) => assert!(Arc::ptr_eq(a, b)),
+            _ => panic!("wrong role"),
+        }
+        // Two complete sessions must both perform full handshakes and transfer
+        // application data; cached configuration must never share TLS state.
+        let mut hellos = Vec::new();
+        for _ in 0..2 {
+            let (mut srv, mut sb) = ssl_builder(ProxyType::HeadUnit, &keys).unwrap();
+            let (mut cli, mut cb) = ssl_builder(ProxyType::MobileDevice, &keys).unwrap();
+            assert!(srv.is_handshaking() && cli.is_handshaking());
+            cli.process(&mut cb).unwrap();
+            let hello = cb.drain_outgoing();
+            assert!(!hello.is_empty());
+            hellos.push(hello.clone());
+            sb.feed_incoming(&hello);
+            for _ in 0..32 {
+                srv.process(&mut sb).unwrap();
+                cb.feed_incoming(&sb.drain_outgoing());
+                cli.process(&mut cb).unwrap();
+                sb.feed_incoming(&cb.drain_outgoing());
+                if !srv.is_handshaking() && !cli.is_handshaking() {
+                    break;
+                }
+            }
+            assert!(!srv.is_handshaking() && !cli.is_handshaking());
+            let payload = b"phone-to-head-unit";
+            cli.encrypt(payload, &mut cb).unwrap();
+            assert_eq!(srv.decrypt(&cb.drain_outgoing(), &mut sb).unwrap(), payload);
+            let reply = b"head-unit-to-phone";
+            srv.encrypt(reply, &mut sb).unwrap();
+            assert_eq!(cli.decrypt(&sb.drain_outgoing(), &mut cb).unwrap(), reply);
+        }
+        assert_ne!(
+            hellos[0], hellos[1],
+            "TLS sessions must have fresh client randomness"
+        );
+
+        let tmp: PathBuf =
+            std::env::temp_dir().join(format!("aa-tls-cache-test-{}", std::process::id()));
+        fs::create_dir_all(&tmp).unwrap();
+        for name in ["md_cert.pem", "md_key.pem"] {
+            fs::copy(std::path::Path::new(&keys).join(name), tmp.join(name)).unwrap();
+        }
+        prepared_config(ProxyType::HeadUnit, tmp.to_str().unwrap()).unwrap();
+        fs::write(tmp.join("md_key.pem"), b"invalid key").unwrap();
+        assert!(
+            prepared_config(ProxyType::HeadUnit, tmp.to_str().unwrap()).is_err(),
+            "changed invalid key must not use cached config"
+        );
+        fs::remove_file(tmp.join("md_key.pem")).unwrap();
+        assert!(
+            prepared_config(ProxyType::HeadUnit, tmp.to_str().unwrap()).is_err(),
+            "missing key must not use cached config"
+        );
+        fs::remove_dir_all(tmp).unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn preparation_and_async_fallback_return_fresh_connections() {
+        let keys = std::env::var("AA_TEST_KEYS_PATH").expect("AA_TEST_KEYS_PATH required");
+        prewarm_during_wifi_wait(&keys);
+        let (server, _) = ssl_builder_async(ProxyType::HeadUnit, &keys).await.unwrap();
+        let (client, _) = ssl_builder_async(ProxyType::MobileDevice, &keys)
+            .await
+            .unwrap();
+        assert!(server.is_handshaking() && client.is_handshaking());
+    }
 }
