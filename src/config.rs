@@ -375,7 +375,7 @@ fn flatten_config_data_section(
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-#[serde(default)]
+#[serde(default = "AppConfig::defaults_without_wifi_probe")]
 pub struct AppConfig {
     pub advertise: bool,
     pub enable_companion_bt: bool,
@@ -834,6 +834,8 @@ pub struct AppConfig {
 
     #[serde(skip)]
     pub runtime_mitm_failed: bool,
+    #[serde(skip)]
+    pub runtime_wifi_defaults_used: bool,
 }
 
 impl Default for ConfigValue {
@@ -919,8 +921,18 @@ fn get_latest_wifi_version_from(iw_output: &str) -> std::io::Result<u16> {
 
 impl Default for AppConfig {
     fn default() -> Self {
-        // Run `iw list` once for all WiFi-capability defaults (wifi_version, band, channel).
-        let iw_cache = iw_list_output().unwrap_or_default();
+        Self::defaults_from_wifi(&iw_list_output().unwrap_or_default())
+    }
+}
+
+impl AppConfig {
+    // Serde constructs container defaults even when every field is provided.
+    // Keep hardware probing out of deserialization; load() resolves only omissions.
+    fn defaults_without_wifi_probe() -> Self {
+        Self::defaults_from_wifi("")
+    }
+
+    fn defaults_from_wifi(iw_cache: &str) -> Self {
         Self {
             advertise: true,
             enable_companion_bt: true,
@@ -1123,6 +1135,7 @@ impl Default for AppConfig {
             wasm_script_packet_epoch_deadline: 100,
             wasm_script_lifecycle_epoch_deadline: 1000,
             runtime_mitm_failed: false,
+            runtime_wifi_defaults_used: true,
         }
     }
 }
@@ -1219,18 +1232,36 @@ impl AppConfig {
     const CONFIG_JSON: &str = include_str!("../static/config.json");
 
     pub fn load(config_file: PathBuf) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::load_with_wifi_probe(config_file, iw_list_output)
+    }
+
+    fn load_with_wifi_probe(
+        config_file: PathBuf,
+        probe: impl FnOnce() -> std::io::Result<String>,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         use ::config::File;
         let config_builder = ::config::Config::builder()
             .add_source(File::from(config_file.clone()).required(false))
             .build()?;
 
-        let file_config = config_builder.try_deserialize();
-
-        if let Err(e) = file_config {
-            return Err(Box::new(e));
+        let missing = ["wifi_version", "band", "channel"]
+            .map(|key| config_builder.get::<::config::Value>(key).is_err());
+        // Validate first: malformed explicit values must not silently become defaults.
+        let mut cfg: Self = config_builder.try_deserialize()?;
+        cfg.runtime_wifi_defaults_used = missing.iter().any(|value| *value);
+        if missing.iter().any(|value| *value) {
+            let defaults = Self::defaults_from_wifi(&probe().unwrap_or_default());
+            if missing[0] {
+                cfg.wifi_version = defaults.wifi_version;
+            }
+            if missing[1] {
+                cfg.band = defaults.band;
+            }
+            if missing[2] {
+                cfg.channel = defaults.channel;
+            }
         }
-
-        Ok(file_config.unwrap())
+        Ok(cfg)
     }
 
     pub fn save(&self, config_file: PathBuf) {
@@ -1505,5 +1536,71 @@ impl AppConfig {
     pub fn load_config_json() -> Result<ConfigJson, Box<dyn std::error::Error>> {
         let parsed: ConfigJson = serde_json::from_str(Self::CONFIG_JSON)?;
         Ok(parsed)
+    }
+}
+
+#[cfg(test)]
+mod startup_config_tests {
+    use super::*;
+    use std::cell::Cell;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    fn fixture(text: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "aa-startup-config-{}-{}.toml",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        fs::write(&path, text).unwrap();
+        path
+    }
+    #[test]
+    fn explicit_wifi_skips_probe_and_preserves_values() {
+        let path = fixture("wifi_version=4\nband='2.4'\nchannel=11\ndpi=113\n");
+        let cfg =
+            AppConfig::load_with_wifi_probe(path.clone(), || panic!("unexpected hardware probe"))
+                .unwrap();
+        assert_eq!(
+            (cfg.wifi_version, cfg.band.as_str(), cfg.channel, cfg.dpi),
+            (4, "2.4", 11, 113)
+        );
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn omitted_wifi_uses_one_probe_without_overwriting_explicit_channel() {
+        let path = fixture("channel=11\n");
+        let calls = Cell::new(0);
+        let cfg = AppConfig::load_with_wifi_probe(path.clone(), || {
+            calls.set(calls.get() + 1);
+            Ok(" HT Capabilities\n5180.0 MHz".into())
+        })
+        .unwrap();
+        assert_eq!(calls.get(), 1);
+        assert_eq!(
+            (cfg.wifi_version, cfg.band.as_str(), cfg.channel),
+            (4, "5", 11)
+        );
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn invalid_explicit_wifi_fails_without_probe() {
+        let path = fixture("wifi_version='bad'\nband='2.4'\nchannel=11\n");
+        assert!(AppConfig::load_with_wifi_probe(path.clone(), || panic!(
+            "probe on invalid config"
+        ))
+        .is_err());
+        fs::remove_file(path).unwrap();
+    }
+    #[test]
+    fn failed_probe_retains_original_conservative_defaults() {
+        let path = fixture("");
+        let cfg =
+            AppConfig::load_with_wifi_probe(path.clone(), || Err(std::io::Error::other("no iw")))
+                .unwrap();
+        assert_eq!(
+            (cfg.wifi_version, cfg.band.as_str(), cfg.channel),
+            (1, "2.4", 6)
+        );
+        fs::remove_file(path).unwrap();
     }
 }
