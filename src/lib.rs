@@ -39,6 +39,7 @@ pub mod sdr_ui_preview;
 pub mod ssl;
 pub mod ssl_openssl;
 pub mod ssl_rustls;
+pub mod system_config;
 pub mod usb_gadget;
 pub mod usb_stream;
 pub mod vendor_ext;

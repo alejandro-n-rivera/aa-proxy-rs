@@ -5,7 +5,7 @@ use aa_proxy_rs::button::button_handler;
 use aa_proxy_rs::config::SharedConfig;
 use aa_proxy_rs::config::SharedConfigJson;
 use aa_proxy_rs::config::WifiConfig;
-use aa_proxy_rs::config::{Action, AppConfig, TCP_SERVER_PORT};
+use aa_proxy_rs::config::{Action, AppConfig, ConfigJson, TCP_SERVER_PORT};
 use aa_proxy_rs::crash;
 use aa_proxy_rs::device_info;
 use aa_proxy_rs::ev::BatteryData;
@@ -24,6 +24,7 @@ use aa_proxy_rs::run_io_loop;
 use aa_proxy_rs::script_wasm::start_wasm_engine;
 #[cfg(feature = "wasm-scripting")]
 use aa_proxy_rs::script_wasm::{ScriptParameters, ScriptRegistry};
+use aa_proxy_rs::system_config;
 #[cfg(feature = "wasm-scripting")]
 use aa_proxy_rs::wasm_config::WasmConfigStore;
 #[cfg(not(feature = "wasm-scripting"))]
@@ -37,7 +38,6 @@ use aa_proxy_rs::web::ServerEvent;
 use clap::Parser;
 use humantime::format_duration;
 use simplelog::*;
-use std::os::unix::fs::PermissionsExt;
 use time::macros::format_description;
 
 use std::collections::HashMap;
@@ -67,16 +67,6 @@ type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>
 
 // module name for logging engine
 const NAME: &str = "<i><bright-black> main: </>";
-const HOSTAPD_CONF_IN: &str = "/etc/hostapd.conf.in";
-const HOSTAPD_CONF_OUT: &str = "/var/run/hostapd.conf";
-const DNSMASQ_CONF_IN: &str = "/etc/dnsmasq.conf.in";
-const DNSMASQ_CONF_OUT: &str = "/var/run/dnsmasq.conf";
-const INTERFACES_IN: &str = "/etc/network/interfaces.in";
-const INTERFACES_OUT: &str = "/var/run/interfaces";
-const UMTPRD_CONF_IN: &str = "/etc/umtprd/umtprd.conf.in";
-const UMTPRD_CONF_OUT: &str = "/var/run/umtprd.conf";
-const GADGET_INIT_IN: &str = "/etc/S92usb_gadget.in";
-const GADGET_INIT_OUT: &str = "/var/run/S92usb_gadget";
 const REBOOT_CMD: &str = "/sbin/reboot";
 const DEFAULT_KERNEL_MODULE_PATH: &str = "/data/aa-proxy-rs/firmware";
 const FIRMWARE_CLASS_PATH_PARAM: &str = "/sys/module/firmware_class/parameters/path";
@@ -1242,169 +1232,6 @@ async fn tokio_main(
     }
 }
 
-/// Returns the full device serial number from Device Tree
-pub fn get_serial_number() -> Result<String> {
-    Ok(
-        fs::read_to_string("/sys/firmware/devicetree/base/serial-number")?
-            .trim_end_matches(char::from(0))
-            .trim()
-            .to_string(),
-    )
-}
-
-fn render_template(template: &str, vars: &[(&str, &str)]) -> String {
-    let mut output = template.to_string();
-    for (key, value) in vars {
-        let placeholder = format!("{{{{{}}}}}", key);
-        output = output.replace(&placeholder, value);
-    }
-    output
-}
-
-fn generate_hostapd_conf(config: &AppConfig) -> std::io::Result<()> {
-    info!(
-        "{} 🗃️ Generating config from input template: <bold><green>{}</>",
-        NAME, HOSTAPD_CONF_IN
-    );
-
-    // Technically for IEEE802.11g we have to use g but AFAIK b is fine.
-    let hostapd_mode = if config.band == "5" || config.band == "6" {
-        "a"
-    } else {
-        "g"
-    };
-
-    let template = fs::read_to_string(HOSTAPD_CONF_IN)?;
-
-    // Eventually: For 6 GHz, we will need more options like opclass.
-    let rendered = render_template(
-        &template,
-        &[
-            ("HW_MODE", hostapd_mode),
-            ("BE_MODE", if config.wifi_version >= 7 { "1" } else { "0" }),
-            ("AX_MODE", if config.wifi_version >= 6 { "1" } else { "0" }),
-            ("AC_MODE", if config.wifi_version >= 5 { "1" } else { "0" }),
-            ("N_MODE", if config.wifi_version >= 4 { "1" } else { "0" }),
-            ("COUNTRY_CODE", &config.country_code),
-            ("CHANNEL", &config.channel.to_string()),
-            ("SSID", &config.ssid),
-            ("WPA_PASSPHRASE", &config.wpa_passphrase),
-        ],
-    );
-
-    info!(
-        "{} 💾 Saving generated file as: <bold><green>{}</>",
-        NAME, HOSTAPD_CONF_OUT
-    );
-    fs::write(HOSTAPD_CONF_OUT, rendered)
-}
-
-fn generate_network_conf(config: &AppConfig, input: &str, output: &str) -> std::io::Result<()> {
-    info!(
-        "{} 🗃️ Generating config from input template: <bold><green>{}</>",
-        NAME, input
-    );
-
-    let template = fs::read_to_string(input)?;
-    let rendered = render_template(&template, &[("WLAN_SUBNET", &config.wlan_subnet)]);
-
-    info!(
-        "{} 💾 Saving generated file as: <bold><green>{}</>",
-        NAME, output
-    );
-    fs::write(output, rendered)
-}
-
-fn generate_usb_strings(input: &str, output: &str) -> std::io::Result<()> {
-    info!(
-        "{} 🗃️ Generating config from input template: <bold><green>{}</>",
-        NAME, input
-    );
-
-    let template = fs::read_to_string(input)?;
-
-    let rendered = render_template(
-        &template,
-        &[
-            (
-                "MODEL",
-                &device_info::get_sbc_model()
-                    .map_or(String::new(), |model| format!(" ({})", model)),
-            ),
-            (
-                "SERIAL",
-                &get_serial_number().unwrap_or("0123456".to_string()),
-            ),
-            (
-                "FIRMWARE_VER",
-                &format!(
-                    "{}, git: {}-{}",
-                    env!("BUILD_DATE"),
-                    env!("GIT_DATE"),
-                    env!("GIT_HASH")
-                ),
-            ),
-        ],
-    );
-
-    info!(
-        "{} 💾 Saving generated file as: <bold><green>{}</>",
-        NAME, output
-    );
-    fs::write(output, rendered)
-}
-
-// /run is recreated at every boot. Hashes, rather than mtimes, remain correct
-// with the Pi's initially unset wall clock and detect config/template/output edits.
-fn write_hostapd_stamp(config_path: &std::path::Path, allow_cache: bool) {
-    use sha2::{Digest, Sha256};
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let stamp = "/var/run/aa-proxy-hostapd.sha256";
-    if !allow_cache
-        || config_path
-            != std::path::Path::new(concat!(aa_proxy_rs::base_config_dir!(), "/config.toml"))
-    {
-        let _ = fs::remove_file(stamp);
-        return;
-    }
-    let result = (|| -> std::io::Result<()> {
-        let paths = [
-            config_path,
-            std::path::Path::new(HOSTAPD_CONF_IN),
-            std::path::Path::new(HOSTAPD_CONF_OUT),
-        ];
-        let mut text = String::new();
-        for path in paths {
-            let name = path.to_string_lossy();
-            if name.contains(['\n', '\\']) {
-                return Err(std::io::Error::other("unsupported checksum filename"));
-            }
-            text.push_str(&format!(
-                "{:x}  {}\n",
-                Sha256::digest(fs::read(path)?),
-                name
-            ));
-        }
-        let tmp = format!("{stamp}.tmp");
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .truncate(true)
-            .write(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        file.write_all(text.as_bytes())?;
-        fs::rename(tmp, stamp)
-    })();
-    if let Err(e) = result {
-        let _ = fs::remove_file(stamp);
-        warn!(
-            "{} hostapd checksum cache unavailable: {}; network setup will regenerate",
-            NAME, e
-        );
-    }
-}
-
 fn main() -> Result<()> {
     let started = Instant::now();
 
@@ -1443,40 +1270,23 @@ fn main() -> Result<()> {
         env!("GIT_HASH")
     );
 
-    // generate system configs from template and exit
+    // Compatibility CLI paths use the same renderer as the lightweight helper.
     if args.generate_system_config || args.generate_boot_config {
-        generate_usb_strings(UMTPRD_CONF_IN, UMTPRD_CONF_OUT)
-            .expect("error generating config from template");
-        generate_network_conf(&config, DNSMASQ_CONF_IN, DNSMASQ_CONF_OUT)
-            .expect("error generating config from template");
-        generate_network_conf(&config, INTERFACES_IN, INTERFACES_OUT)
-            .expect("error generating config from template");
-
-        generate_usb_strings(GADGET_INIT_IN, GADGET_INIT_OUT)
-            .expect("error generating config from template");
-        // make a script executable
-        info!(
-            "{} 🚀 Making script executable: <bold><green>{}</>",
-            NAME, GADGET_INIT_OUT
-        );
-        let mut perms = fs::metadata(GADGET_INIT_OUT)?.permissions();
-        perms.set_mode(0o755); // rwxr-xr-x
-        fs::set_permissions(GADGET_INIT_OUT, perms)?;
-        if args.generate_boot_config {
-            generate_hostapd_conf(&config).expect("error generating hostapd config");
-            write_hostapd_stamp(&args.config, !config.runtime_wifi_defaults_used);
-        }
+        system_config::generate_system_configs(&config, &args.config, args.generate_boot_config)?;
         return Ok(());
     }
-    // generate hostapd config from template and exit
     if args.generate_hostapd {
-        generate_hostapd_conf(&config).expect("error generating config from template");
-        write_hostapd_stamp(&args.config, !config.runtime_wifi_defaults_used);
+        system_config::generate_hostapd_config(&config, &args.config)?;
         return Ok(());
     }
 
-    // Generator commands do not need the web UI's embedded settings metadata.
-    let config_json = AppConfig::load_config_json().expect("Invalid embedded config.json");
+    // Metadata is only consumed by the web UI or the companion interface.
+    // Preserve it whenever either consumer is enabled.
+    let config_json = if config.webserver.is_some() || config.enable_companion_bt {
+        AppConfig::load_config_json().expect("Invalid embedded config.json")
+    } else {
+        ConfigJson::default()
+    };
 
     // show SBC model
     let mut led_support = false;
