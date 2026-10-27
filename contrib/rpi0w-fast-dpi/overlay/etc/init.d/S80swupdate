@@ -1,0 +1,4 @@
+#!/bin/sh
+# OTA management disabled for the DPI-only performance test.
+# Offline removal of this userdata override restores the stock script.
+exit 0

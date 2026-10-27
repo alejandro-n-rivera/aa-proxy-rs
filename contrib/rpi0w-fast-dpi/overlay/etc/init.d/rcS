@@ -1,0 +1,69 @@
+#!/bin/sh
+
+# Log everything to /var/log/messages
+exec 1> >(logger -s -p INFO -t console 2>&1)
+exec 2> >(logger -s -p WARNING -t console)
+
+aa_boot_rc=0
+aa_boot_last=
+aa_dbus_pid=
+aa_wait_dbus() {
+    [ -n "$aa_dbus_pid" ] || return 0
+    wait "$aa_dbus_pid"
+    aa_dbus_rc=$?
+    aa_dbus_pid=
+    if [ "$aa_dbus_rc" -ne 0 ]; then
+        printf 'D-Bus startup exited with status %s\n' "$aa_dbus_rc" >&2
+    fi
+    # Match the original last-service exit status if D-Bus was the last service.
+    [ "$aa_boot_last" = /etc/init.d/S30dbus-daemon ] && aa_boot_rc=$aa_dbus_rc
+    return 0
+}
+
+# Start init scripts in numerical order. D-Bus may overlap configuration
+# generation, but must finish before the Bluetooth daemon is started.
+for i in /etc/init.d/S??* ;do
+
+     # Ignore dangling symlinks (if any).
+     [ ! -f "$i" ] && continue
+
+     # SSH is retained but launched after the projection services.
+     [ "$i" = /etc/init.d/S50dropbear ] && continue
+
+     [ "$i" = /etc/init.d/S40bluetoothd ] && aa_wait_dbus
+     aa_boot_last=$i
+     if [ "$i" = /etc/init.d/S30dbus-daemon ]; then
+         (
+             "$i" start
+             aa_dbus_rc=$?
+             exit "$aa_dbus_rc"
+         ) &
+         aa_dbus_pid=$!
+         continue
+     fi
+
+     case "$i" in
+        *.sh)
+            # Source shell script for speed.
+            (
+                trap - INT QUIT TSTP
+                set start
+                . $i
+            )
+            ;;
+        *)
+            # No sh extension, so fork subprocess.
+            $i start
+            ;;
+    esac
+    aa_boot_rc=$?
+done
+# Reap D-Bus even if this image has no Bluetooth daemon startup script.
+aa_wait_dbus
+
+# Launch the unchanged SSH service exactly once, after the proxy launcher.
+if [ -f /etc/init.d/S50dropbear ]; then
+    /etc/init.d/S50dropbear start
+    aa_boot_rc=$?
+fi
+exit "$aa_boot_rc"
